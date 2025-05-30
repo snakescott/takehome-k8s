@@ -32,9 +32,6 @@ rules:
 - apiGroups: [""]
   resources: ["nodes"]
   verbs: ["get", "list", "watch"]
-# - apiGroups: ["events.k8s.io"] # Or "" for core v1 events
-#   resources: ["events"]
-#   verbs: ["create", "patch"] # If your scheduler creates events
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
