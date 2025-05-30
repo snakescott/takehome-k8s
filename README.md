@@ -15,3 +15,4 @@ minikube image build -t takehome-scheduler:latest .
 
 Due to time contraints this has only been tested on a single node minikube in the default namespace, but it is intended to work on a arbitrary k8s installations in any namespace.
 
+You can setup the scheduler using set_up_scheduler.bash. if an argument is passed to the script, it will be interpreted as a namespace and all k8s resources will be created there. Otherwise, default will be used.
