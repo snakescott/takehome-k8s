@@ -3,6 +3,8 @@ Note: ran out of time for both gang scheduling and (sadly!) testing.
 
 
 ## Seeing in action
+** These instructions are not safe for production**
+
 Ensure the image defined by `Containerfile` is available in your k8s, e.g. via
 
 ```

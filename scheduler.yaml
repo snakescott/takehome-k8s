@@ -22,3 +22,8 @@ spec:
         - "--scheduler-name=my-custom-scheduler"
         - "--namespace=default"
       serviceAccountName: custom-scheduler
+    env:
+      - name: POD_NAMESPACE
+        valueFrom:
+          fieldRef:
+            fieldPath: metadata.namespace
