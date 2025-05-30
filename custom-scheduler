@@ -1,0 +1,122 @@
+#!/usr/bin/env python
+
+import time
+import random
+import json
+import argparse
+
+from kubernetes import client, config, watch
+
+config.load_incluster_config()
+v1=client.CoreV1Api()
+
+def node_context_for_scheduler(scheduler_name, namespace):
+    node_pod_pairs = []
+    try:
+        print(f"Listing pods in namespace '{namespace}' scheduled by '{scheduler_name}'...")
+        pod_list = v1.list_namespaced_pod(namespace=namespace, watch=False)
+        for pod in pod_list.items:
+            # Ensure pod.spec and pod.spec.scheduler_name exist
+            if pod.spec and hasattr(pod.spec, 'scheduler_name') and pod.spec.scheduler_name == scheduler_name:
+                # Ensure pod.spec.node_name exists (pod might be pending and not yet scheduled to a node)
+                if hasattr(pod.spec, 'node_name') and pod.spec.node_name:
+                    node_name = pod.spec.node_name
+                    node_pod_pairs.append((node_name, pod))
+                else:
+                    # Handle cases where a pod matches the scheduler but isn't yet on a node
+                    # You might want to log this or handle it differently based on requirements
+                    print(f"Pod '{pod.metadata.name}' in namespace '{namespace}' "
+                          f"matches scheduler '{scheduler_name}' but is not yet assigned to a node.")
+            elif pod.spec and pod.spec.scheduler_name == scheduler_name and not pod.spec.node_name:
+                 print(f"Pod '{pod.metadata.name}' in namespace '{namespace}' "
+                       f"matches scheduler '{scheduler_name}' but is not yet assigned to a node (node_name is None or empty).")
+    except client.ApiException as e:
+        print(f"Error calling Kubernetes API: {e}")
+        return []
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        return []
+
+    return node_pod_pairs
+
+
+def nodes_available(scheduler_name, namespace):
+    running_state = node_context_for_scheduler(scheduler_name, namespace)
+
+    busy_nodes = set(t[0] for t in running_state)
+
+    ready_nodes = []
+    for n in v1.list_node().items:
+            for status in n.status.conditions:
+                if status.status == "True" and status.type == "Ready" and n.metadata.name not in busy_nodes:
+                    ready_nodes.append(n.metadata.name)
+    return ready_nodes
+
+def attempt_preemption(scheduler_name, namespace, pod):
+    running_state = node_context_for_scheduler(scheduler_name, namespace)
+    if running_state:
+        running_state.sort(key=lambda t:t[1].spec.priority)
+        lowest_node_name, lowest_pod = running_state[0]
+        if lowest_pod.spec.priority < pod.spec.priority:
+            victim_pod_name = lowest_pod.metadata.name
+            policy_v1 = client.PolicyV1Api() # For Eviction API
+
+            print(f"Attempting to evict pod: {victim_pod_name} in namespace: {namespace} to allow scheduling of {pod.metadata.name}")
+            eviction_body = client.V1Eviction(
+                api_version="policy/v1", # Use policy/v1 for modern clusters
+                kind="Eviction",
+                metadata=client.V1ObjectMeta(
+                    name=victim_pod_name,
+                    namespace=namespace
+                ),
+                delete_options=client.V1DeleteOptions(
+                    grace_period_seconds=0
+                )
+            )
+            try:
+                v1.create_namespaced_pod_eviction(
+                    name=victim_pod_name,
+                    namespace=namespace,
+                    body=eviction_body
+                )
+                print(f"Evicted: {victim_pod_name} in namespace: {namespace}, allowing node to schedule new pod")
+                return [lowest_node_name]
+            except client.ApiException as e:
+                    print(f"Error calling Kubernetes API: {e}")
+                    return []
+
+def scheduler(name, node, namespace="default"):
+        
+    target= client.V1ObjectReference(kind="Node", api_version="v1", name=node)
+    meta= client.V1ObjectMeta(name=name)
+    body= client.V1Binding(metadata=meta, target=target)
+    
+    return v1.create_namespaced_pod_binding(name, namespace, body)
+
+def main(scheduler_name, namespace):
+    print(f"Takehome scheduler running with name {scheduler_name} and namespace {namespace}")
+    w = watch.Watch()
+    for event in w.stream(v1.list_namespaced_pod, namespace):
+        if event['object'].status.phase == "Pending" and event['object'].spec.scheduler_name == scheduler_name:
+            pod_name = event['object'].metadata.name
+            try:
+                nodes = nodes_available(scheduler_name, namespace)
+                if not nodes:
+                    nodes = attempt_preemption(scheduler_name, namespace, event['object'])
+                if nodes:
+                    node = random.choice(nodes)
+                    print(f"Scheduling {pod_name}, node is {node}")       
+                    res = scheduler(event['object'].metadata.name, node)
+                else:
+                    print(f"All nodes running a pod from {scheduler_name}, can't schedule {pod_name}")
+            except client.rest.ApiException as e:
+                print(json.loads(e.body)['message'])
+                    
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="Run the main script with a specific scheduler.")
+    parser.add_argument('--scheduler-name', type=str, required=True,
+                        help='The name of the scheduler to use.')
+    parser.add_argument('--namespace', type=str, required=True,
+        help='The namespace to schedule inside of')
+    args = parser.parse_args()
+    main(args.scheduler_name, args.namespace)
