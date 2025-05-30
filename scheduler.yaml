@@ -20,10 +20,9 @@ spec:
         command: ["/usr/local/bin/custom-scheduler"]
         args:
         - "--scheduler-name=my-custom-scheduler"
-        - "--namespace=default"
+        env:
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
       serviceAccountName: custom-scheduler
-    env:
-      - name: POD_NAMESPACE
-        valueFrom:
-          fieldRef:
-            fieldPath: metadata.namespace
