@@ -1,5 +1,7 @@
 # takehome-k8s
-Note: ran out of time for both gang scheduling and (sadly!) testing.
+Notes: 
+1. Ran out of time for both gang scheduling and (sadly!) testing.
+2. [custom-scheduler-v2](https://github.com/snakescott/custom-scheduler-v2) is a much cleaner implementation, but was built after/outside of the take-home time window (it has a [devlog](https://github.com/snakescott/custom-scheduler-v2/blob/main/devlog.md) detailing its development including when and how long it was worked on).
 
 
 ## Seeing in action
